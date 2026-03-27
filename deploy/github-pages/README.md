@@ -39,6 +39,11 @@ gh auth login --web --git-protocol https
 gh repo create resume-screening-mvp --private --source . --remote origin --push
 ```
 
+也可以直接用项目里的一键脚本：
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\Desktop\JD\deploy\github-pages\publish-github-pages.ps1
+```
+
 4. 打开仓库设置，把 Pages 来源切到 `GitHub Actions`
 
 5. 在仓库的 `Settings -> Secrets and variables -> Actions -> Variables` 新增：
