@@ -1,0 +1,22 @@
+{
+  "name": "resume-screening-mvp",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
+  "forwardPorts": [
+    8010
+  ],
+  "portsAttributes": {
+    "8010": {
+      "label": "resume-screening-backend",
+      "onAutoForward": "ignore"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh"
+}
