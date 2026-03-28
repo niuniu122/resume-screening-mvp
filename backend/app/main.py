@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -61,6 +63,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -351,8 +354,8 @@ async def import_jd(
         source_type = "file"
     assert jd_text is not None
     clean_text = normalize_text(jd_text)
-    parse_result = recruiting_engine.parse_jd(clean_text)
-    question_result = recruiting_engine.generate_follow_up_questions(parse_result.data, clean_text)
+    parse_result = await asyncio.to_thread(recruiting_engine.parse_jd, clean_text)
+    question_result = await asyncio.to_thread(recruiting_engine.generate_follow_up_questions, parse_result.data, clean_text)
 
     job = Job(
         title=parse_result.data["title"],
@@ -385,13 +388,13 @@ async def import_jd(
 
 
 @app.post("/jobs/{job_id}/interview/answer", response_model=ScreeningProfileDraft)
-def answer_interview(job_id: str, payload: AnswerRequest, db: Session = Depends(get_db)) -> ScreeningProfileDraft:
+async def answer_interview(job_id: str, payload: AnswerRequest, db: Session = Depends(get_db)) -> ScreeningProfileDraft:
     job = db.get(Job, job_id)
     if job is None or job.interview_session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job or interview session not found.")
 
     answers = [item.model_dump() for item in payload.answers]
-    draft = recruiting_engine.compile_profile(job.parsed_jd, job.jd_text, answers)
+    draft = await asyncio.to_thread(recruiting_engine.compile_profile, job.parsed_jd, job.jd_text, answers)
 
     job.interview_session.answers = answers
     job.interview_session.draft_profile = draft.data

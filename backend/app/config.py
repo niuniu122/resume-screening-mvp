@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str | None = None
-    openai_timeout_seconds: float = 90.0
+    openai_timeout_seconds: float = 30.0
     cors_origins: str | list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     public_api_base_url: str | None = None
     recruiter_default_name: str = "Recruiter"
