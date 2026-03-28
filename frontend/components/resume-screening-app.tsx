@@ -188,7 +188,14 @@ export function ResumeScreeningApp() {
   const [backendReachable, setBackendReachable] = useState(true);
 
   useEffect(() => {
-    setApiBaseUrlInput(getApiBaseUrlOverride() ?? getApiBaseUrl());
+    // On static pages host, only pre-fill if the user has explicitly set an override.
+    // Do NOT fall back to window.location.origin (the GitHub Pages URL itself).
+    const override = getApiBaseUrlOverride();
+    if (override) {
+      setApiBaseUrlInput(override);
+    } else if (!isStaticPagesHost()) {
+      setApiBaseUrlInput(getApiBaseUrl());
+    }
     void initialize();
   }, []);
 
