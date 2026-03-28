@@ -11,10 +11,18 @@ jobs:
     steps:
       - name: Ping backend health endpoint
         env:
-          BACKEND_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          BACKEND_URL: ${{ vars.CODESPACES_BACKEND_URL }}
         run: |
           if [ -z "$BACKEND_URL" ]; then
-            echo "NEXT_PUBLIC_API_BASE_URL is not configured."
-            exit 1
+            echo "::notice::CODESPACES_BACKEND_URL is not configured. Skipping keepalive ping."
+            exit 0
           fi
-          curl --fail --silent --show-error "$BACKEND_URL/health"
+          echo "Pinging $BACKEND_URL/health ..."
+          HTTP_STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" --max-time 10 "$BACKEND_URL/health" || echo "000")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Backend is healthy."
+          elif [ "$HTTP_STATUS" = "000" ]; then
+            echo "::notice::Backend is unreachable (connection failed). Codespace may be stopped."
+          else
+            echo "::warning::Backend returned HTTP $HTTP_STATUS."
+          fi

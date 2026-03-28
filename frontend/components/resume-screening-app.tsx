@@ -185,6 +185,7 @@ export function ResumeScreeningApp() {
   const [profileDraft, setProfileDraft] = useState<ScreeningProfileDraft | null>(null);
   const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
   const [apiBaseUrlInput, setApiBaseUrlInput] = useState("");
+  const [backendReachable, setBackendReachable] = useState(true);
 
   useEffect(() => {
     setApiBaseUrlInput(getApiBaseUrlOverride() ?? getApiBaseUrl());
@@ -205,10 +206,25 @@ export function ResumeScreeningApp() {
     setPageLoading(true);
     try {
       if (isStaticPagesHost() && !hasConfiguredApiBaseUrl()) {
+        setBackendReachable(false);
         clearSelectedWorkspace();
         setJobs([]);
         return;
       }
+      // Health check before loading data
+      const healthUrl = `${getApiBaseUrl()}/health`;
+      try {
+        const healthResp = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+        if (!healthResp.ok) throw new Error("unhealthy");
+      } catch {
+        if (isStaticPagesHost()) {
+          setBackendReachable(false);
+          clearSelectedWorkspace();
+          setJobs([]);
+          return;
+        }
+      }
+      setBackendReachable(true);
       const jobList = await listJobs();
       setJobs(jobList.items);
       if (jobList.items[0]) {
@@ -217,7 +233,13 @@ export function ResumeScreeningApp() {
         clearSelectedWorkspace();
       }
     } catch (error) {
-      message.error(error instanceof Error ? error.message : "初始化失败");
+      if (isStaticPagesHost()) {
+        setBackendReachable(false);
+        clearSelectedWorkspace();
+        setJobs([]);
+      } else {
+        message.error(error instanceof Error ? error.message : "初始化失败");
+      }
     } finally {
       setPageLoading(false);
     }
@@ -545,19 +567,37 @@ export function ResumeScreeningApp() {
                   </Space>
                 </Card>
 
-                <Card style={{ borderRadius: 20 }}>
+                <Card
+                  style={{
+                    borderRadius: 20,
+                    border: !backendReachable ? "2px solid #fa8c16" : undefined,
+                    background: !backendReachable ? "linear-gradient(135deg, rgba(250,140,22,0.08), rgba(250,84,28,0.06))" : undefined,
+                  }}
+                >
                   <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                    <Typography.Text strong>后端地址</Typography.Text>
-                    <Typography.Text type="secondary">
-                      如果前端挂在 GitHub Pages，而后端还在你的电脑上，请把后端公网地址填在这里。
+                    <Typography.Text strong>
+                      {!backendReachable ? "⚠ 后端未连接" : "后端地址"}
                     </Typography.Text>
+                    {!backendReachable ? (
+                      <Typography.Text type="warning">
+                        无法连接到后端服务。请在下方输入可访问的后端地址后点击"连接"。
+                        如果你还没有启动后端，请先参考文档部署后端服务。
+                      </Typography.Text>
+                    ) : (
+                      <Typography.Text type="secondary">
+                        如果前端挂在 GitHub Pages，而后端还在你的电脑上，请把后端公网地址填在这里。
+                      </Typography.Text>
+                    )}
                     <Input
                       value={apiBaseUrlInput}
                       placeholder="例如 https://api.example.com 或 http://127.0.0.1:8010"
                       onChange={(event) => setApiBaseUrlInput(event.target.value)}
+                      status={!backendReachable ? "warning" : undefined}
                     />
                     <Space wrap>
-                      <Button onClick={() => void handleSaveApiBaseUrl()}>保存地址</Button>
+                      <Button type={!backendReachable ? "primary" : "default"} onClick={() => void handleSaveApiBaseUrl()}>
+                        {!backendReachable ? "连接" : "保存地址"}
+                      </Button>
                       <Button onClick={() => void handleResetApiBaseUrl()}>恢复默认</Button>
                     </Space>
                   </Space>
