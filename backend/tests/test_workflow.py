@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,37 @@ from app.models import AuditLog, CandidateProfile, EvaluationResult, Job, Recrui
 
 
 client = TestClient(app)
+
+
+def import_jd_helper(data=None, files=None):
+    """Import JD and handle both sync and async response formats."""
+    response = client.post("/jobs/import-jd", data=data, files=files)
+    assert response.status_code == 200
+    resp_data = response.json()
+    if "job_id" in resp_data:
+        job_id = resp_data["job_id"]
+        for _ in range(60):
+            time.sleep(0.2)
+            s = client.get(f"/jobs/{job_id}/import-status").json()
+            if s.get("status") == "done":
+                return client.get(f"/jobs/{job_id}").json()["job"]
+        raise TimeoutError("Import JD timed out")
+    return resp_data["job"]
+
+
+def answer_interview_helper(job_id, answers_json):
+    """Answer interview and handle both sync and async response formats."""
+    resp = client.post(f"/jobs/{job_id}/interview/answer", json=answers_json)
+    assert resp.status_code == 200
+    data = resp.json()
+    if data.get("status") == "compiling":
+        for _ in range(60):
+            time.sleep(0.2)
+            s = client.get(f"/jobs/{job_id}/compile-status").json()
+            if s.get("status") == "done":
+                return s["draft"]
+        raise TimeoutError("Compile profile timed out")
+    return data
 
 
 def reset_database() -> None:
@@ -35,9 +67,7 @@ def test_end_to_end_screening_flow(tmp_path: Path) -> None:
     负责外贸团队管理，英语可作为工作语言，要求本科以上学历，3年以上外贸经验，至少管理过10人团队。
     熟悉阿里巴巴国际站、独立站以及客户谈判。
     """
-    response = client.post("/jobs/import-jd", data={"jd_text": jd_text})
-    assert response.status_code == 200
-    job = response.json()["job"]
+    job = import_jd_helper(data={"jd_text": jd_text})
     assert job["parsed_jd"]["title"] == "外贸经理"
 
     answers = {
@@ -48,9 +78,7 @@ def test_end_to_end_screening_flow(tmp_path: Path) -> None:
             {"question_id": "interview-focus", "answer": "货款延期、跨部门协调、客诉危机处理"},
         ]
     }
-    draft_response = client.post(f"/jobs/{job['id']}/interview/answer", json=answers)
-    assert draft_response.status_code == 200
-    draft = draft_response.json()
+    draft = answer_interview_helper(job['id'], answers)
     assert draft["hard_constraints"]
 
     freeze_response = client.post(f"/jobs/{job['id']}/freeze-profile", json={"profile": draft})
@@ -94,12 +122,9 @@ def test_end_to_end_screening_flow(tmp_path: Path) -> None:
 def test_manual_decision_is_persisted(tmp_path: Path) -> None:
     reset_database()
     jd_text = "外贸专员，需要英语与2年以上经验。"
-    response = client.post("/jobs/import-jd", data={"jd_text": jd_text})
-    job_id = response.json()["job"]["id"]
-    draft = client.post(
-        f"/jobs/{job_id}/interview/answer",
-        json={"answers": [{"question_id": "hard-rules", "answer": "2年以上经验，英语能沟通"}]},
-    ).json()
+    job = import_jd_helper(data={"jd_text": jd_text})
+    job_id = job["id"]
+    draft = answer_interview_helper(job_id, {"answers": [{"question_id": "hard-rules", "answer": "2年以上经验，英语能沟通"}]})
     client.post(f"/jobs/{job_id}/freeze-profile", json={"profile": draft})
 
     tmp_file = tmp_path / "candidate.txt"
@@ -123,12 +148,9 @@ def test_manual_decision_is_persisted(tmp_path: Path) -> None:
 
 def test_candidate_name_falls_back_to_filename_when_resume_text_has_no_name(tmp_path: Path) -> None:
     reset_database()
-    response = client.post("/jobs/import-jd", data={"jd_text": "外贸专员，需要英语与2年以上经验。"})
-    job_id = response.json()["job"]["id"]
-    draft = client.post(
-        f"/jobs/{job_id}/interview/answer",
-        json={"answers": [{"question_id": "hard-rules", "answer": "2年以上经验，英语能沟通"}]},
-    ).json()
+    job = import_jd_helper(data={"jd_text": "外贸专员，需要英语与2年以上经验。"})
+    job_id = job["id"]
+    draft = answer_interview_helper(job_id, {"answers": [{"question_id": "hard-rules", "answer": "2年以上经验，英语能沟通"}]})
     client.post(f"/jobs/{job_id}/freeze-profile", json={"profile": draft})
 
     tmp_file = tmp_path / "蓝小姐.txt"

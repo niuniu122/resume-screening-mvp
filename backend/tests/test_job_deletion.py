@@ -55,12 +55,37 @@ def test_delete_job_removes_history_and_uploaded_files(tmp_path: Path) -> None:
         with jd_file.open("rb") as file_handle:
             response = client.post("/jobs/import-jd", files={"file": ("job.txt", file_handle, "text/plain")})
         assert response.status_code == 200
-        job_id = response.json()["job"]["id"]
+        resp_data = response.json()
+        # Handle both async (background task) and sync response formats
+        if "job_id" in resp_data:
+            job_id = resp_data["job_id"]
+            # Wait for background import to complete
+            import time
+            for _ in range(30):
+                time.sleep(0.5)
+                status_resp = client.get(f"/jobs/{job_id}/import-status")
+                if status_resp.json().get("status") == "done":
+                    break
+        else:
+            job_id = resp_data["job"]["id"]
 
-        draft = client.post(
+        answer_resp = client.post(
             f"/jobs/{job_id}/interview/answer",
             json={"answers": [{"question_id": "hard-rules", "answer": "3+ years experience and business English."}]},
-        ).json()
+        )
+        answer_data = answer_resp.json()
+        # Handle both async and sync response for answer
+        if answer_data.get("status") == "compiling":
+            import time
+            for _ in range(30):
+                time.sleep(0.5)
+                status_resp = client.get(f"/jobs/{job_id}/compile-status")
+                status_data = status_resp.json()
+                if status_data.get("status") == "done":
+                    draft = status_data["draft"]
+                    break
+        else:
+            draft = answer_data
         freeze = client.post(f"/jobs/{job_id}/freeze-profile", json={"profile": draft})
         assert freeze.status_code == 200
 
