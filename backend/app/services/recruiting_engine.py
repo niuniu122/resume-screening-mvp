@@ -112,34 +112,19 @@ class RecruitingEngine:
     def _request_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         if not self.client:
             raise RuntimeError("Model client is not configured.")
-        try:
-            response = self.client.responses.create(
-                model=self.settings.openai_model,
-                instructions=system_prompt,
-                input=user_prompt,
-                text={"format": {"type": "json_object"}},
-            )
-            content = (getattr(response, "output_text", "") or "").strip()
-            if not content:
-                raise ValueError("Responses API returned empty content.")
-            data = json.loads(content)
-            if not isinstance(data, dict):
-                raise ValueError("Model output must be a JSON object.")
-            return data
-        except Exception:
-            completion = self.client.chat.completions.create(
-                model=self.settings.openai_model,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = completion.choices[0].message.content or "{}"
-            data = json.loads(content)
-            if not isinstance(data, dict):
-                raise ValueError("Model output must be a JSON object.")
-            return data
+        completion = self.client.chat.completions.create(
+            model=self.settings.openai_model,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("Model output must be a JSON object.")
+        return data
 
     def _llm_parse_jd(self, jd_text: str) -> dict[str, Any]:
         return self._request_json(
