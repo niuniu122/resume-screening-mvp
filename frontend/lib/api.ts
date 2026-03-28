@@ -113,61 +113,69 @@ export async function importJob(params: { jdText?: string; file?: File | null })
   if (params.file) {
     formData.append("file", params.file);
   }
-  // Step 1: Submit (returns immediately with job_id)
   const response = await fetch(`${getApiBaseUrl()}/jobs/import-jd`, {
     method: "POST",
     body: formData,
-    signal: makeSignal(30000),
+    signal: makeSignal(120000),
   });
-  const submitResult = await parseJson<{ status: string; job_id: string }>(response);
+  const rawResult = await parseJson<Record<string, unknown>>(response);
 
-  // Step 2: Poll for completion
-  const maxAttempts = 60;
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const pollResponse = await fetch(`${getApiBaseUrl()}/jobs/${submitResult.job_id}/import-status`, {
-      cache: "no-store",
-      signal: makeSignal(10000),
-    });
-    const result = await parseJson<{ status: string; job_id?: string }>(pollResponse);
-    if (result.status === "done" && result.job_id) {
-      // Fetch the full job details
-      return getJob(result.job_id);
+  // Handle async background mode: {"status": "importing", "job_id": "..."}
+  if (rawResult.status === "importing" && rawResult.job_id) {
+    const jobId = rawResult.job_id as string;
+    const maxAttempts = 60;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const pollResponse = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/import-status`, {
+        cache: "no-store",
+        signal: makeSignal(10000),
+      });
+      const result = await parseJson<{ status: string; job_id?: string }>(pollResponse);
+      if (result.status === "done" && result.job_id) {
+        return getJob(result.job_id);
+      }
+      if (result.status === "failed") {
+        throw new Error("岗位导入失败，请重试");
+      }
     }
-    if (result.status === "failed") {
-      throw new Error("岗位导入失败，请重试");
-    }
+    throw new Error("岗位导入超时，请重试");
   }
-  throw new Error("岗位导入超时，请重试");
+
+  // Handle sync mode (legacy): {"job": {...}}
+  return rawResult as unknown as JobSetupResponse;
 }
 
 export async function answerInterview(jobId: string, answers: QuestionAnswer[]): Promise<ScreeningProfileDraft> {
-  // Step 1: Submit answers (returns immediately, processing in background)
   const submitResponse = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/interview/answer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answers }),
-    signal: makeSignal(30000),
+    signal: makeSignal(120000),
   });
-  await parseJson(submitResponse);
+  const rawResult = await parseJson<Record<string, unknown>>(submitResponse);
 
-  // Step 2: Poll for completion
-  const maxAttempts = 60;
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const pollResponse = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/compile-status`, {
-      cache: "no-store",
-      signal: makeSignal(10000),
-    });
-    const result = await parseJson<{ status: string; draft?: ScreeningProfileDraft }>(pollResponse);
-    if (result.status === "done" && result.draft) {
-      return result.draft as ScreeningProfileDraft;
+  // Handle async background mode: {"status": "compiling", "job_id": "..."}
+  if (rawResult.status === "compiling" && rawResult.job_id) {
+    const maxAttempts = 60;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const pollResponse = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/compile-status`, {
+        cache: "no-store",
+        signal: makeSignal(10000),
+      });
+      const result = await parseJson<{ status: string; draft?: ScreeningProfileDraft }>(pollResponse);
+      if (result.status === "done" && result.draft) {
+        return result.draft as ScreeningProfileDraft;
+      }
+      if (result.status !== "compiling") {
+        throw new Error("岗位画像生成失败，请重试");
+      }
     }
-    if (result.status !== "compiling") {
-      throw new Error("岗位画像生成失败，请重试");
-    }
+    throw new Error("岗位画像生成超时，请重试");
   }
-  throw new Error("岗位画像生成超时，请重试");
+
+  // Handle sync mode (legacy): direct ScreeningProfileDraft response
+  return rawResult as unknown as ScreeningProfileDraft;
 }
 
 export async function freezeProfile(jobId: string, profile: ScreeningProfileDraft): Promise<void> {
