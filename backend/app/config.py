@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "Resume Screening MVP"
     database_url: str = "sqlite:///./screening.db"
     storage_dir: Path = Path("storage")
-    storage_backend: Literal["local", "oss"] = "local"
+    storage_backend: Literal["local", "db", "oss"] = "local"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str | None = None

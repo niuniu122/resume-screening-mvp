@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -193,6 +193,17 @@ class ReviewDecision(TimestampMixin, Base):
         back_populates="review_decisions",
         foreign_keys=[evaluation_id],
     )
+
+
+class FileBlob(TimestampMixin, Base):
+    __tablename__ = "file_blobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(100))
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class AuditLog(TimestampMixin, Base):

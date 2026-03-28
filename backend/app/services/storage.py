@@ -98,6 +98,64 @@ class LocalStorageService(StorageService):
             path.unlink()
 
 
+class DbStorageService(StorageService):
+    """Store files as binary blobs in the database (PostgreSQL)."""
+
+    def save_bytes(self, filename: str, content: bytes, folder: str, content_type: str | None = None) -> StoredObject:
+        from ..db import SessionLocal
+        from ..models import FileBlob
+
+        suffix = Path(filename).suffix.lower()
+        key = f"{folder}/{uuid.uuid4()}{suffix}"
+        db = SessionLocal()
+        try:
+            blob = FileBlob(
+                key=key,
+                filename=filename,
+                content_type=content_type,
+                data=content,
+                size=len(content),
+            )
+            db.add(blob)
+            db.commit()
+        finally:
+            db.close()
+        return StoredObject(backend="db", key=key, filename=filename, content_type=content_type)
+
+    def read_bytes(self, stored_object: StoredObject) -> bytes:
+        from ..db import SessionLocal
+        from ..models import FileBlob
+        from sqlalchemy import select
+
+        db = SessionLocal()
+        try:
+            blob = db.scalars(select(FileBlob).where(FileBlob.key == stored_object.key)).first()
+            if blob is None:
+                raise FileNotFoundError(f"File not found in database: {stored_object.key}")
+            return blob.data
+        finally:
+            db.close()
+
+    def build_reference(self, key: str, filename: str, content_type: str | None, metadata: dict | None = None) -> StoredObject:
+        return StoredObject(backend="db", key=key, filename=filename, content_type=content_type)
+
+    def delete(self, key: str) -> None:
+        from ..db import SessionLocal
+        from ..models import FileBlob
+        from sqlalchemy import select
+
+        if not key:
+            return
+        db = SessionLocal()
+        try:
+            blob = db.scalars(select(FileBlob).where(FileBlob.key == key)).first()
+            if blob:
+                db.delete(blob)
+                db.commit()
+        finally:
+            db.close()
+
+
 class OssStorageService(StorageService):
     def __init__(self, settings: Settings) -> None:
         missing = [
@@ -168,6 +226,8 @@ def get_storage_service(settings: Settings | None = None) -> StorageService:
     settings = settings or get_settings()
     if settings.storage_backend == "local":
         return LocalStorageService(settings)
+    if settings.storage_backend == "db":
+        return DbStorageService()
     if settings.storage_backend == "oss":
         return OssStorageService(settings)
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unsupported storage backend.")
