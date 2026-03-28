@@ -8,14 +8,19 @@ import app.services.recruiting_engine as engine_module
 
 
 def make_client_with_json(payload: dict):
-    class FakeResponses:
+    class FakeChatCompletions:
         def create(self, **kwargs):
-            return SimpleNamespace(output_text=json.dumps(payload, ensure_ascii=False))
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
+                    )
+                ]
+            )
 
     class FakeClient:
         def __init__(self):
-            self.responses = FakeResponses()
-            self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: None))
+            self.chat = SimpleNamespace(completions=FakeChatCompletions())
 
     return FakeClient()
 
