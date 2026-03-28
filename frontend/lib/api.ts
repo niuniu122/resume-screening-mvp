@@ -67,6 +67,10 @@ export function hasConfiguredApiBaseUrl(): boolean {
   return Boolean(getApiBaseUrlOverride() ?? DEFAULT_API_BASE_URL);
 }
 
+function makeSignal(timeoutMs = 120000): AbortSignal {
+  return AbortSignal.timeout(timeoutMs);
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = `Request failed: ${response.status}`;
@@ -111,7 +115,8 @@ export async function importJob(params: { jdText?: string; file?: File | null })
   }
   const response = await fetch(`${getApiBaseUrl()}/jobs/import-jd`, {
     method: "POST",
-    body: formData
+    body: formData,
+    signal: makeSignal(120000),
   });
   return parseJson<JobSetupResponse>(response);
 }
@@ -120,7 +125,8 @@ export async function answerInterview(jobId: string, answers: QuestionAnswer[]):
   const response = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/interview/answer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers })
+    body: JSON.stringify({ answers }),
+    signal: makeSignal(120000),
   });
   return parseJson<ScreeningProfileDraft>(response);
 }
@@ -129,7 +135,8 @@ export async function freezeProfile(jobId: string, profile: ScreeningProfileDraf
   const response = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/freeze-profile`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile })
+    body: JSON.stringify({ profile }),
+    signal: makeSignal(120000),
   });
   await parseJson(response);
 }
@@ -139,7 +146,8 @@ export async function uploadResumes(jobId: string, files: File[]): Promise<void>
   files.forEach((file) => formData.append("files", file));
   const response = await fetch(`${getApiBaseUrl()}/jobs/${jobId}/resumes`, {
     method: "POST",
-    body: formData
+    body: formData,
+    signal: makeSignal(120000),
   });
   await parseJson(response);
 }
