@@ -1,6 +1,9 @@
 export type JobStatus =
   | "draft"
+  | "importing"
+  | "import_failed"
   | "interview_pending"
+  | "compiling_profile"
   | "profile_draft"
   | "screening_ready"
   | "screening_in_progress";

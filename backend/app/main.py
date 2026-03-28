@@ -337,12 +337,46 @@ def delete_job(job_id: str, db: Session = Depends(get_db)) -> DeleteJobResponse:
     )
 
 
-@app.post("/jobs/import-jd", response_model=JobSetupResponse)
+def _import_jd_background(job_id: str, clean_text: str) -> None:
+    """Run JD parsing + question generation in background."""
+    db = SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        if job is None:
+            return
+        heuristic_parsed = recruiting_engine._heuristic_parse_jd(clean_text)
+        parse_result = recruiting_engine.parse_jd(clean_text)
+        question_result = recruiting_engine.generate_follow_up_questions(heuristic_parsed, clean_text)
+
+        job.title = parse_result.data["title"]
+        job.parsed_jd = parse_result.data
+        job.status = "interview_pending"
+        session = RecruiterInterviewSession(
+            job=job,
+            questions=question_result.data["questions"],
+            answers=[],
+            draft_profile=None,
+        )
+        db.add(session)
+        audit(db, "job", job.id, "job_imported", settings.recruiter_default_name,
+              {"title": job.title, "source_type": job.source_type})
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        job = db.get(Job, job_id)
+        if job:
+            job.status = "import_failed"
+            db.commit()
+    finally:
+        db.close()
+
+
+@app.post("/jobs/import-jd")
 async def import_jd(
+    background_tasks: BackgroundTasks,
     jd_text: Annotated[str | None, Form()] = None,
     file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
-) -> JobSetupResponse:
+) -> dict:
     if file is None and not jd_text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide JD text or upload a file.")
 
@@ -354,66 +388,97 @@ async def import_jd(
         source_type = "file"
     assert jd_text is not None
     clean_text = normalize_text(jd_text)
-    # Get instant heuristic parse for parallel question generation
     heuristic_parsed = recruiting_engine._heuristic_parse_jd(clean_text)
-    # Run both LLM calls in parallel to cut wait time in half
-    parse_result, question_result = await asyncio.gather(
-        asyncio.to_thread(recruiting_engine.parse_jd, clean_text),
-        asyncio.to_thread(recruiting_engine.generate_follow_up_questions, heuristic_parsed, clean_text),
-    )
 
     job = Job(
-        title=parse_result.data["title"],
-        status="interview_pending",
+        title=heuristic_parsed["title"],
+        status="importing",
         source_type=source_type,
         jd_text=clean_text,
-        parsed_jd=parse_result.data,
+        parsed_jd=heuristic_parsed,
         jd_storage_path=stored_object.key if stored_object else None,
     )
-    session = RecruiterInterviewSession(
-        job=job,
-        questions=question_result.data["questions"],
-        answers=[],
-        draft_profile=None,
-    )
     db.add(job)
-    db.add(session)
     db.flush()
-    audit(
-        db,
-        "job",
-        job.id,
-        "job_imported",
-        settings.recruiter_default_name,
-        {"title": job.title, "source_type": source_type},
-    )
     db.commit()
     db.refresh(job)
-    return JobSetupResponse(job=build_job_detail(db, job))
+
+    background_tasks.add_task(_import_jd_background, job.id, clean_text)
+    return {"status": "importing", "job_id": job.id}
 
 
-@app.post("/jobs/{job_id}/interview/answer", response_model=ScreeningProfileDraft)
-async def answer_interview(job_id: str, payload: AnswerRequest, db: Session = Depends(get_db)) -> ScreeningProfileDraft:
+@app.get("/jobs/{job_id}/import-status")
+def get_import_status(job_id: str, db: Session = Depends(get_db)) -> dict:
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    if job.status == "importing":
+        return {"status": "importing"}
+    if job.status == "import_failed":
+        return {"status": "failed"}
+    return {"status": "done", "job_id": job.id}
+
+
+def _compile_profile_background(job_id: str, answers: list[dict]) -> None:
+    """Run compile_profile in background to avoid Render's 60s request timeout."""
+    db = SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        if job is None or job.interview_session is None:
+            return
+        draft = recruiting_engine.compile_profile(job.parsed_jd, job.jd_text, answers)
+        job.interview_session.answers = answers
+        job.interview_session.draft_profile = draft.data
+        job.status = "profile_draft"
+        audit(
+            db,
+            "job",
+            job.id,
+            "interview_answered",
+            settings.recruiter_default_name,
+            {"answers_count": len(answers)},
+        )
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        job = db.get(Job, job_id)
+        if job and job.interview_session:
+            job.interview_session.draft_profile = None
+            job.status = "interview_pending"
+            db.commit()
+    finally:
+        db.close()
+
+
+@app.post("/jobs/{job_id}/interview/answer")
+async def answer_interview(
+    job_id: str,
+    payload: AnswerRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> dict:
     job = db.get(Job, job_id)
     if job is None or job.interview_session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job or interview session not found.")
 
     answers = [item.model_dump() for item in payload.answers]
-    draft = await asyncio.to_thread(recruiting_engine.compile_profile, job.parsed_jd, job.jd_text, answers)
-
     job.interview_session.answers = answers
-    job.interview_session.draft_profile = draft.data
-    job.status = "profile_draft"
-    audit(
-        db,
-        "job",
-        job.id,
-        "interview_answered",
-        settings.recruiter_default_name,
-        {"answers_count": len(answers)},
-    )
+    job.status = "compiling_profile"
     db.commit()
-    return ScreeningProfileDraft(**draft.data)
+
+    background_tasks.add_task(_compile_profile_background, job_id, answers)
+    return {"status": "compiling", "job_id": job_id}
+
+
+@app.get("/jobs/{job_id}/compile-status")
+def get_compile_status(job_id: str, db: Session = Depends(get_db)) -> dict:
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
+    if job.status == "compiling_profile":
+        return {"status": "compiling"}
+    if job.interview_session and job.interview_session.draft_profile:
+        return {"status": "done", "draft": job.interview_session.draft_profile}
+    return {"status": "pending"}
 
 
 @app.post("/jobs/{job_id}/freeze-profile", response_model=ProfileVersionView)
