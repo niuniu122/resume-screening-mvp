@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: resume-screening-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:///./screening.db
+      - key: STORAGE_BACKEND
+        value: local
+      - key: STORAGE_DIR
+        value: storage
+      - key: CORS_ORIGINS
+        value: '["https://niuniu122.github.io"]'
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4
+      - key: OPENAI_TIMEOUT_SECONDS
+        value: "90"
+      - key: RECRUITER_DEFAULT_NAME
+        value: Recruiter
+      - key: PYTHON_VERSION
+        value: "3.13.0"
