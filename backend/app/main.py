@@ -354,8 +354,13 @@ async def import_jd(
         source_type = "file"
     assert jd_text is not None
     clean_text = normalize_text(jd_text)
-    parse_result = await asyncio.to_thread(recruiting_engine.parse_jd, clean_text)
-    question_result = await asyncio.to_thread(recruiting_engine.generate_follow_up_questions, parse_result.data, clean_text)
+    # Get instant heuristic parse for parallel question generation
+    heuristic_parsed = recruiting_engine._heuristic_parse_jd(clean_text)
+    # Run both LLM calls in parallel to cut wait time in half
+    parse_result, question_result = await asyncio.gather(
+        asyncio.to_thread(recruiting_engine.parse_jd, clean_text),
+        asyncio.to_thread(recruiting_engine.generate_follow_up_questions, heuristic_parsed, clean_text),
+    )
 
     job = Job(
         title=parse_result.data["title"],
