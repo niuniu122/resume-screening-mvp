@@ -218,12 +218,19 @@ export function ResumeScreeningApp() {
         setJobs([]);
         return;
       }
-      // Health check before loading data
+      // Health check before loading data (retry for Render free-tier cold starts)
       const healthUrl = `${getApiBaseUrl()}/health`;
-      try {
-        const healthResp = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(8000) });
-        if (!healthResp.ok) throw new Error("unhealthy");
-      } catch {
+      let healthy = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const healthResp = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(attempt === 0 ? 15000 : 30000) });
+          if (healthResp.ok) { healthy = true; break; }
+        } catch {
+          // wait before retry on cold-start timeout
+          if (attempt < 2) await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+      if (!healthy) {
         if (isStaticPagesHost()) {
           setBackendReachable(false);
           clearSelectedWorkspace();
