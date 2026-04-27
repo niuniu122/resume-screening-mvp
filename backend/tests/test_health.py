@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 import app.main as main_module
 
@@ -35,3 +36,18 @@ def test_root_returns_status_when_frontend_bundle_is_missing(tmp_path, monkeypat
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["health"] == "/health"
+
+
+def test_database_errors_return_service_unavailable() -> None:
+    def broken_db():
+        raise SQLAlchemyError("database expired")
+        yield
+
+    main_module.app.dependency_overrides[main_module.get_db] = broken_db
+    try:
+        response = client.get("/jobs")
+    finally:
+        main_module.app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert "Database is unavailable" in response.json()["detail"]

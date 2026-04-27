@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import desc, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -78,6 +79,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(_: object, exc: SQLAlchemyError) -> JSONResponse:
+    logger.exception("Database request failed.", exc_info=exc)
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": (
+                "Database is unavailable. On Render, check whether the PostgreSQL database has expired "
+                "or update DATABASE_URL to a working database."
+            )
+        },
+    )
 
 
 def audit(db: Session, entity_type: str, entity_id: str, action: str, actor: str, payload: dict) -> None:
