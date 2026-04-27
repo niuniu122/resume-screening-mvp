@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -49,16 +50,22 @@ from .services.recruiting_engine import RecruitingEngine
 from .services.storage import StoredObject, get_storage_service
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 recruiting_engine = RecruitingEngine()
 storage_service = get_storage_service(settings)
 frontend_out_dir = Path(__file__).resolve().parents[2] / "frontend" / "out"
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     if settings.storage_backend == "local":
         Path(__file__).resolve().parents[1].joinpath(settings.storage_dir).mkdir(parents=True, exist_ok=True)
-    init_db()
+    application.state.database_startup_error = None
+    try:
+        await asyncio.wait_for(asyncio.to_thread(init_db), timeout=15)
+    except Exception as exc:  # noqa: BLE001
+        application.state.database_startup_error = str(exc)
+        logger.exception("Database initialization failed during startup.")
     yield
 
 
