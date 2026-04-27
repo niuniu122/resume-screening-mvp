@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -275,7 +275,7 @@ def process_resume_submission(submission_id: str) -> None:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
@@ -681,10 +681,10 @@ def submit_decision(evaluation_id: str, payload: DecisionRequest, db: Session = 
 
 
 @app.get("/", include_in_schema=False)
-def serve_frontend_index() -> FileResponse:
+def serve_frontend_index() -> Response:
     candidate = frontend_out_dir / "index.html"
     if not candidate.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Frontend bundle is not available.")
+        return JSONResponse({"status": "ok", "service": settings.app_name, "health": "/health"})
     return FileResponse(candidate)
 
 
