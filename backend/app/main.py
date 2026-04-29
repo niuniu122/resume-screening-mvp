@@ -686,6 +686,7 @@ def get_evaluation(evaluation_id: str, db: Session = Depends(get_db)) -> Evaluat
         interview_questions=evaluation.interview_questions,
         final_recommendation=evaluation.final_recommendation,
         markdown_report=evaluation.markdown_report,
+        model_version=evaluation.model_version,
         manual_decision=evaluation.manual_decision,
         manual_reason=evaluation.manual_reason,
         created_at=evaluation.created_at,

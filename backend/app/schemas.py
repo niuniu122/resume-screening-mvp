@@ -176,6 +176,7 @@ class EvaluationDetail(BaseModel):
     interview_questions: list[str]
     final_recommendation: str
     markdown_report: str
+    model_version: str
     manual_decision: str | None = None
     manual_reason: str | None = None
     created_at: datetime
