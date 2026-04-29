@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Resume Screening MVP"
     database_url: str = "sqlite:///./screening.db"
+    database_fallback_url: str | None = "sqlite:///./screening.db"
     storage_dir: Path = Path("storage")
     storage_backend: Literal["local", "db", "oss"] = "local"
     openai_api_key: str | None = None

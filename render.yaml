@@ -10,6 +10,8 @@ services:
     envVars:
       - key: DATABASE_URL
         value: sqlite:///./screening.db
+      - key: DATABASE_FALLBACK_URL
+        value: sqlite:///./screening.db
       - key: STORAGE_BACKEND
         value: local
       - key: STORAGE_DIR

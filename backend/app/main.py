@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .db import SessionLocal, get_db, init_db
+from .db import SessionLocal, configure_database, get_db, init_db
 from .models import (
     AuditLog,
     CandidateProfile,
@@ -62,11 +62,21 @@ async def lifespan(application: FastAPI):
     if settings.storage_backend == "local":
         Path(__file__).resolve().parents[1].joinpath(settings.storage_dir).mkdir(parents=True, exist_ok=True)
     application.state.database_startup_error = None
+    application.state.database_fallback_active = False
     try:
         await asyncio.wait_for(asyncio.to_thread(init_db), timeout=15)
     except Exception as exc:  # noqa: BLE001
         application.state.database_startup_error = str(exc)
-        logger.exception("Database initialization failed during startup.")
+        logger.exception("Primary database initialization failed during startup.")
+        if settings.database_fallback_url:
+            try:
+                configure_database(settings.database_fallback_url)
+                await asyncio.wait_for(asyncio.to_thread(init_db), timeout=15)
+                application.state.database_fallback_active = True
+                logger.warning("Using fallback database because the primary database is unavailable.")
+            except Exception as fallback_exc:  # noqa: BLE001
+                application.state.database_startup_error = f"{exc}; fallback failed: {fallback_exc}"
+                logger.exception("Fallback database initialization failed during startup.")
     yield
 
 

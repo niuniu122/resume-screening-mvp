@@ -25,7 +25,30 @@ def test_health_endpoint_stays_available_when_database_startup_fails(monkeypatch
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-    assert main_module.app.state.database_startup_error == "database expired"
+    assert "database expired" in main_module.app.state.database_startup_error
+
+
+def test_startup_uses_fallback_database_when_primary_fails(monkeypatch) -> None:
+    init_calls = {"count": 0}
+    configured_urls = []
+
+    def flaky_init_db() -> None:
+        init_calls["count"] += 1
+        if init_calls["count"] == 1:
+            raise RuntimeError("primary database expired")
+
+    def record_configure_database(database_url: str) -> None:
+        configured_urls.append(database_url)
+
+    monkeypatch.setattr(main_module, "init_db", flaky_init_db)
+    monkeypatch.setattr(main_module, "configure_database", record_configure_database)
+
+    with TestClient(main_module.app) as test_client:
+        response = test_client.get("/health")
+
+    assert response.status_code == 200
+    assert main_module.app.state.database_fallback_active is True
+    assert configured_urls == [main_module.settings.database_fallback_url]
 
 
 def test_root_returns_status_when_frontend_bundle_is_missing(tmp_path, monkeypatch) -> None:
