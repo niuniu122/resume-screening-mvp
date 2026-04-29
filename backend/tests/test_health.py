@@ -14,6 +14,18 @@ def test_health_endpoint() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_runtime_health_does_not_expose_secrets() -> None:
+    response = client.get("/health/runtime")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert "model_api_configured" in payload
+    assert "model" in payload
+    assert "api_key" not in payload
+    assert "base_url" not in payload
+
+
 def test_health_endpoint_stays_available_when_database_startup_fails(monkeypatch) -> None:
     def broken_init_db() -> None:
         raise RuntimeError("database expired")

@@ -311,6 +311,16 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/health/runtime")
+async def runtime_health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "database_fallback_active": bool(getattr(app.state, "database_fallback_active", False)),
+        "model_api_configured": recruiting_engine.llm_enabled,
+        "model": recruiting_engine.model_version,
+    }
+
+
 @app.get("/jobs", response_model=JobListResponse)
 def list_jobs(db: Session = Depends(get_db)) -> JobListResponse:
     jobs = db.scalars(select(Job).order_by(desc(Job.created_at))).all()
